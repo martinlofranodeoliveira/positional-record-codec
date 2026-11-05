@@ -1,0 +1,23 @@
+{
+  "name": "lofranotecnologia/positional-record-codec",
+  "description": "Offline PHP 8.4 fixed-width positional codec and batch control-total auditor.",
+  "version": "0.1.0",
+  "type": "library",
+  "license": "MIT",
+  "homepage": "https://lofranotecnologia.com.br",
+  "support": {
+    "source": "https://github.com/martinlofranodeoliveira/positional-record-codec",
+    "issues": "https://github.com/martinlofranodeoliveira/positional-record-codec/issues"
+  },
+  "authors": [
+    { "name": "Lofrano Tecnologia", "homepage": "https://lofranotecnologia.com.br" }
+  ],
+  "require": {
+    "php": ">=8.4",
+    "php-64bit": ">=8.4",
+    "ext-json": "*",
+    "ext-pcre": "*"
+  },
+  "autoload": { "psr-4": { "Lofrano\\PositionalCodec\\": "src/" } },
+  "bin": ["bin/positional-codec"]
+}

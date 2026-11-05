@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    container:
+      image: php:8.4-cli-bookworm
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Verify PHP runtime
+        run: php -v
+      - name: Check syntax
+        run: find src tests bin -type f \( -name '*.php' -o -name 'positional-codec' \) -exec php -l {} \;
+      - name: Run regression and adversarial tests
+        run: php tests/run.php
+      - name: Run offline demo
+        run: php bin/positional-codec demo

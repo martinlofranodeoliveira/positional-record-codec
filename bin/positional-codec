@@ -1,0 +1,149 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+require_once __DIR__ . '/../src/autoload.php';
+
+use Lofrano\PositionalCodec\BatchCodec;
+use Lofrano\PositionalCodec\CodecException;
+use Lofrano\PositionalCodec\Diagnostic;
+use Lofrano\PositionalCodec\LayoutSchema;
+use Lofrano\PositionalCodec\ResourceLimits;
+
+final class OutputFailure extends RuntimeException {}
+
+/** @param resource $stream */
+function writeText(mixed $stream, string $text): void
+{
+    $offset = 0;
+    $length = strlen($text);
+    while ($offset < $length) {
+        $written = @fwrite($stream, substr($text, $offset));
+        if ($written === false || $written === 0) {
+            throw new OutputFailure('output_io_error');
+        }
+        $offset += $written;
+    }
+    if (!@fflush($stream)) {
+        throw new OutputFailure('output_io_error');
+    }
+}
+
+function outputFailure(): int
+{
+    try {
+        $text = json_encode(['valid' => false, 'diagnostic' => (new Diagnostic(
+            0, 'io', null, null, null, 'output_io_error', 'Unable to write output.',
+        ))->toArray()], JSON_THROW_ON_ERROR) . "\n";
+        writeText(STDERR, $text);
+    } catch (Throwable) {
+        // Stderr may be unavailable as well; never print a native warning/trace.
+    }
+    return 2;
+}
+
+function emitJson(array $report): void
+{
+    writeText(STDOUT, json_encode($report, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n");
+}
+
+function readBoundedFile(string $path, int $maxBytes): ?string
+{
+    // Only explicitly supplied regular local files. Never open URL/stream wrappers.
+    if ($path === '' || str_contains($path, "\0") || str_contains($path, '://') || !@is_file($path)) {
+        return null;
+    }
+    $handle = @fopen($path, 'rb');
+    if ($handle === false) {
+        return null;
+    }
+    try {
+        $stat = @fstat($handle);
+        if ($stat === false || ($stat['mode'] & 0170000) !== 0100000 || $stat['size'] > $maxBytes) {
+            return null;
+        }
+        $content = @stream_get_contents($handle, $maxBytes + 1);
+        return $content === false || strlen($content) > $maxBytes ? null : $content;
+    } finally {
+        fclose($handle);
+    }
+}
+
+function ioFailure(): int
+{
+    emitJson(['valid' => false, 'diagnostic' => (new Diagnostic(
+        0, 'io', null, null, null, 'file_read_error', 'Unable to read a regular local file within byte limits.',
+    ))->toArray()]);
+    return 2;
+}
+
+function main(array $argv): int
+{
+    $command = $argv[1] ?? '--help';
+    if (in_array($command, ['--help', '-h', 'help'], true) && count($argv) <= 2) {
+        writeText(STDOUT, "positional-record-codec 0.1.0 (development)\nOffline positional batch codec and auditor.\n\nUsage:\n  php bin/positional-codec demo\n  php bin/positional-codec validate-schema <schema.json>\n  php bin/positional-codec audit <schema.json> <batch.txt>\n");
+        return 0;
+    }
+    $expected = ['demo' => 2, 'validate-schema' => 3, 'audit' => 4];
+    if (!isset($expected[$command]) || count($argv) !== $expected[$command]) {
+        writeText(STDERR, "Invalid arguments. Run 'php bin/positional-codec --help'.\n");
+        return 2;
+    }
+    $limits = new ResourceLimits();
+    $schemaPath = $command === 'demo' ? __DIR__ . '/../fixtures/erp_payment_schema.json' : $argv[2];
+    $schemaJson = readBoundedFile($schemaPath, $limits->maxSchemaBytes);
+    if ($schemaJson === null) {
+        return ioFailure();
+    }
+    $schema = LayoutSchema::fromJsonString($schemaJson, $limits);
+    if ($command === 'validate-schema') {
+        emitJson([
+            'valid' => true, 'schema_name' => $schema->name, 'schema_version' => $schema->schemaVersion,
+            'encoding_mode' => $schema->encodingMode->value, 'line_length' => $schema->lineLength,
+            'discriminator_span' => [$schema->discriminatorStartCol, $schema->discriminatorEndCol],
+            'field_counts' => array_map(count(...), $schema->recordFields),
+            'detail_count_field' => $schema->detailCountField, 'sum_controls' => $schema->sumControls,
+        ]);
+        return 0;
+    }
+    $batchPath = $command === 'demo' ? __DIR__ . '/../fixtures/erp_payment_batch.txt' : $argv[3];
+    $content = readBoundedFile($batchPath, $limits->maxBatchBytes);
+    if ($content === null) {
+        return ioFailure();
+    }
+    $codec = new BatchCodec($schema, $limits);
+    $result = $command === 'demo' ? $codec->parseText($content) : $codec->auditText($content);
+    if ($command === 'audit' || !$result->valid) {
+        writeText(STDOUT, $result->toAuditSummaryJson() . "\n");
+        return $result->valid ? 0 : 1;
+    }
+    $rebuilt = $codec->formatBatch($result->header, $result->details, $result->trailer, $result->lineEnding, $result->hasTrailingNewline);
+    $identical = hash_equals($content, $rebuilt);
+    emitJson(['command' => 'demo', 'version' => '0.1.0', 'round_trip_byte_identical' => $identical,
+        'audit_summary' => $result->toAuditSummaryArray()]);
+    return $identical ? 0 : 1;
+}
+
+try {
+    exit(main(array_values($argv)));
+} catch (OutputFailure) {
+    exit(outputFailure());
+} catch (CodecException $e) {
+    try {
+        emitJson(['valid' => false, 'diagnostic' => $e->diagnostic?->toArray()]);
+        exit(1);
+    } catch (OutputFailure) {
+        exit(outputFailure());
+    }
+} catch (Throwable) {
+    // Never expose PHP exception text, paths, traces, or argument values.
+    try {
+        emitJson(['valid' => false, 'diagnostic' => (new Diagnostic(
+            0, 'batch', null, null, null, 'internal_error', 'Operation could not be completed.',
+        ))->toArray()]);
+        exit(2);
+    } catch (OutputFailure) {
+        exit(outputFailure());
+    }
+}

@@ -1,0 +1,59 @@
+{
+  "schema_version": "0.1.0",
+  "name": "erp_vendor_payout_v1",
+  "line_length": 80,
+  "encoding_mode": "utf8_chars",
+  "discriminator": {
+    "start_col": 1,
+    "end_col": 1
+  },
+  "records": {
+    "header": {
+      "discriminator_value": "H",
+      "fields": [
+        { "name": "record_type", "type": "constant", "start_col": 1, "end_col": 1, "value": "H" },
+        { "name": "batch_id", "type": "digits", "start_col": 2, "end_col": 9 },
+        { "name": "generation_date", "type": "date_ymd", "start_col": 10, "end_col": 17 },
+        { "name": "company_name", "type": "alpha", "start_col": 18, "end_col": 47 },
+        { "name": "currency", "type": "constant", "start_col": 48, "end_col": 50, "value": "BRL" },
+        { "name": "reserved", "type": "alpha", "start_col": 51, "end_col": 80 }
+      ]
+    },
+    "detail": {
+      "discriminator_value": "D",
+      "fields": [
+        { "name": "record_type", "type": "constant", "start_col": 1, "end_col": 1, "value": "D" },
+        { "name": "sequence_number", "type": "digits", "start_col": 2, "end_col": 7 },
+        { "name": "vendor_code", "type": "digits", "start_col": 8, "end_col": 17 },
+        { "name": "vendor_name", "type": "alpha", "start_col": 18, "end_col": 47 },
+        { "name": "due_date", "type": "date_ymd", "start_col": 48, "end_col": 55 },
+        { "name": "net_amount_minor", "type": "implied_decimal", "start_col": 56, "end_col": 67, "scale": 2 },
+        { "name": "tax_amount_minor", "type": "implied_decimal", "start_col": 68, "end_col": 77, "scale": 2 },
+        { "name": "status_code", "type": "alpha", "start_col": 78, "end_col": 80 }
+      ]
+    },
+    "trailer": {
+      "discriminator_value": "T",
+      "fields": [
+        { "name": "record_type", "type": "constant", "start_col": 1, "end_col": 1, "value": "T" },
+        { "name": "detail_count", "type": "digits", "start_col": 2, "end_col": 7 },
+        { "name": "total_net_minor", "type": "implied_decimal", "start_col": 8, "end_col": 21, "scale": 2 },
+        { "name": "total_tax_minor", "type": "implied_decimal", "start_col": 22, "end_col": 35, "scale": 2 },
+        { "name": "reserved", "type": "alpha", "start_col": 36, "end_col": 80 }
+      ]
+    }
+  },
+  "trailer_controls": {
+    "detail_count_field": "detail_count",
+    "sum_controls": [
+      {
+        "detail_field": "net_amount_minor",
+        "trailer_field": "total_net_minor"
+      },
+      {
+        "detail_field": "tax_amount_minor",
+        "trailer_field": "total_tax_minor"
+      }
+    ]
+  }
+}
